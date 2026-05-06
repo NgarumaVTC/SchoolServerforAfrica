@@ -1,6 +1,6 @@
-#+Title: School Server Software Architecture
+#+Title: School Server Software Architecture (NixOS Edition)
 #+Author: Axel Ramge
-#+Date: 2026-04-30
+#+Date: 2026-05-05
 
 * Router: MikroTik hAP ax3
 - Firewall, Masquerading (NAT)
@@ -10,36 +10,42 @@
 - Isolated Wi-Fi for students
 - Wireguard for remote management
 
-* px1: Proxmox School Server
-** Infrastructure & Management
-- Management LXC for administration (Admin entry point)
-- Ansible (running in Management LXC) for configuration management
-- etckeeper on the host (Git tracking for /etc and /usr/local/etc)
+* Server: NixOS Declarative Host (N100 -> später AMD 5950X)
+** Infrastructure & Management (The "Nix Way")
+- Single Source of Truth: Entire system state defined in `/etc/nixos` (Git-tracked, public on GitHub)
+- NO Ansible, NO etckeeper required (NixOS natively handles declarative config management and rollbacks)
+- Management Node (`mgnt1`): Central entry point for admin tools / rebuild scripts
 - UPS integration via NUT (Network UPS Tools)
 - Backup: "The African Way" – Weekly rotation of two rugged USB drives
-  - vzdump for LXC backups to USB
-  - Cronjob for host configuration backup to USB
+  - ZFS Snapshots & ZFS Send/Receive to USB drives (blazing fast, incremental)
 
-** Network & Core Services
-- apt-cacher-ng (LXC) for massive internet traffic reduction
-- Apache2 (LXC or Host) as central web server
+** Network & Core Services (NixOS Containers via systemd-nspawn)
+- `web01` Container: 
+  - Nginx web server
   - Delivery of iPXE boot images (HTTP)
   - Local documentation / School portal
-- Kiwix server (LXC) for bandwidth-independent offline knowledge (Wikipedia, Khan Academy, ZIM files)
-- LLDAP / LAM (LXC) as lightweight user management (for approx. 120 students; 60 incoming, 60 outgoing annually)
+- `ct-kiwix` Container (Offline Knowledge):
+  - kiwix-serve for bandwidth-independent offline Wikipedia, Khan Academy, etc.
+- `ct-auth` Container (Identity Provider):
+  - LLDAP (Lightweight LDAP) for central user management (~120 students)
+  - SQLite backend, minimal footprint, web-based UI
+  - Provisional Master Password: "NgarumaVTC"
 
-** Storage & User Data
-- Storage LXC (privileged) manages ZFS datasets for students (with quotas)
-- Exports user homes via NFS to the Thin Client LXCs
-- "The Teacher's Desk" (Das Lehrpult): NFS mounts for straightforward file exchange
-  - `/media/ClassMaterial` (Read-Only for students, Read-Write for teachers)
-  - `/media/DropBox` (Write-Only for students, Drop-In for assignments)
+** Storage & User Data (Native ZFS & Bind-Mounts)
+- Storage handled natively by the NixOS Host via ZFS (Datasets with quotas)
+- NO NFS REQUIRED: Student homes are passed directly from the host into containers via blazing-fast native Bind-Mounts
+- "The Teacher's Desk" (Das Lehrpult): Bind-Mounts for straightforward file exchange
+  - `/tank/ClassMaterial` (Read-Only for students, Read-Write for teachers)
+  - `/tank/DropBox` (Write-Only for students, Drop-In for assignments)
 
-** Desktop Environments & Student LXCs
-- 20x LXC containers (Debian) with Firefox, LibreOffice, text editors, programming languages (Python, Javascript, etc.), LibreCAD, FreeCAD, nginx web server, databases, etc.
-- XFCE4, xrdp, pam_mount (NFS-Home & Teacher's Desk integration)
-- Pre-installed Nginx in every student LXC (for learning and experimenting)
+** Desktop Environments & Student Workspaces (NixOS Containers via systemd-nspawn)
+- 20x NixOS containers (`ct90051` - `ct90070`) 
+- Base Image managed via `studentssoftware.nix` (Firefox, LibreOffice, Zed, FreeCAD, GIMP, Python, etc.)
+- GUI Stack: XFCE4 + xrdp (KISS-Principle, extremely low resource footprint)
+- User environment dynamically linked upon login (Profiles)
+- Students can safely install packages locally via `nix profile` without root privileges
 
-* Thin Clients (20x Refurbished Business PCs)
+* Thin Clients (20x Refurbished Business PCs / MSI Grenade)
 - Diskless, booting via iPXE
-- Kiosk mode: Direct start of xfreerdp in fullscreen
+- Minimal RAM-based Linux OS (NixOS Netboot or Alpine)
+- Kiosk mode: Direct start of `xfreerdp` (or `wlfreerdp`) in fullscreen, pointing to the student's assigned NixOS container
