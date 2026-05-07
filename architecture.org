@@ -16,7 +16,7 @@
 - NO Ansible, NO etckeeper required (NixOS natively handles declarative config management and rollbacks)
 - Management Node (`mgnt1`): Central entry point for admin tools / rebuild scripts
 - UPS integration via NUT (Network UPS Tools)
-- Backup: "The African Way" – Weekly rotation of two rugged USB drives
+- Backup: "The African Way" – Weekly rotation of two rugged USB-C drives (Transcend StoreJet 25M3C)
   - ZFS Snapshots & ZFS Send/Receive to USB drives (blazing fast, incremental)
 
 ** Network & Core Services (NixOS Containers via systemd-nspawn)
@@ -45,7 +45,7 @@
 - User environment dynamically linked upon login (Profiles)
 - Students can safely install packages locally via `nix profile` without root privileges
 
-* Thin Clients (20x Refurbished Business PCs / MSI Grenade)
+* Thin Clients (20x Refurbished Business PCs / e.g. HP ProDesk or Dell OptiPlex Micro)
 - Diskless, booting via iPXE
 - Minimal RAM-based Linux OS (NixOS Netboot or Alpine)
 - Kiosk mode: Direct start of `xfreerdp` (or `wlfreerdp`) in fullscreen, pointing to the student's assigned NixOS container

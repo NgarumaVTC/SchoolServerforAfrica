@@ -8,17 +8,18 @@ This document outlines the network architecture for the Ngaruma School deploymen
 
 ** Core Principles applied:
 - *Keep it simple, stupid! (KISS)*: IPv6 is completely disabled to reduce overhead and troubleshooting complexity. Security relies on simple, robust Layer-2 isolation and firewall rules rather than complex routing.
-- *High-Performance Layer-2 Design*: To prevent routing bottlenecks, all heavy internal traffic (PXE booting 20 Thin Clients, NFS mounts, RDP sessions to Proxmox) is kept locally on the main switch in the new building. The router only handles internet traffic and DNS.
-- *Physical Resilience*: The ~400m connection between the main building (Router) and the new building (Proxmox/Thin Clients) will be established using a fiber optic link (SFP+) to ensure complete galvanic isolation and immunity against lightning strikes.
+- *High-Performance Layer-2 Design*: To prevent routing bottlenecks, all heavy internal traffic (PXE booting 20 Thin Clients, NFS mounts, RDP sessions to NixOS) is kept locally on the main switch in the new building. The router only handles internet traffic and DNS.
+- *Physical Resilience*: The ~400m connection between the main building (Router) and the new building (NixOS/Thin Clients) will be established using a fiber optic link (SFP+) to ensure complete galvanic isolation and immunity against lightning strikes.
+- *Declarative Single Point of Truth (SPoT)*: All network configurations (IPs, VLANs, MAC addresses) are centrally defined in the NixOS configuration (`gitNixos/common/network.nix`).
 
 * IP Addressing & Subnet Architecture
 The network is divided into four distinct logical zones. VLANs are only used where technically necessary to transport multiple networks over a single trunk cable.
 
 | Subnet         | Name            | VLAN ID | Interface / Port            | Purpose & Access Status                                  |
 |----------------+-----------------+---------+-----------------------------+--------------------------------------------------|
-| 172.20.0.0/24  | Admin & Mgmt    | 1 (unt) | Bridge / ether2-4 / wifi1   | Core management, Proxmox Host, Full access.      |
+| 172.20.0.0/24  | Admin & Mgmt    | 1 (unt) | Bridge / ether2-4 / wifi1   | Core management, NixOS Host, Full access.        |
 | 172.20.89.0/24 | Teachers        | 89      | vlan-teachers / wifi-teach  | Teacher PCs and Teacher Wi-Fi.                   |
-| 172.20.90.0/24 | Students Wired  | 90      | vlan-students               | Thin Clients booting via PXE from Proxmox.       |
+| 172.20.90.0/24 | Students Wired  | 90      | vlan-students               | Thin Clients booting via PXE from NixOS.         |
 | 172.20.91.0/24 | Students Wi-Fi  | None    | wifi2 (Isolated)            | Isolated 2.4GHz Wi-Fi for student devices.       |
 
 * Hardware Layout & Port Assignment
@@ -34,13 +35,13 @@ Acts as the central gateway, DHCP server, and firewall.
 - *wifi2 (2.4GHz)*: SSID = =NgarumaStudents=. Hard-removed from the bridge for Layer-2 isolation. 20MHz channel width for maximum penetration through clay walls.
 
 ** 2. Main Switch: CSS610 / CRS (New Building)
-Acts as the distribution layer for the Proxmox server and Thin Clients. Configured via SwOS (Strict VLAN Mode).
+Acts as the distribution layer for the NixOS server and Thin Clients. Configured via SwOS (Strict VLAN Mode).
 
 | Port | Connection Target   | VLAN Mode | VLAN Receive  | Default VLAN ID | Description                                      |
 |------+---------------------+-----------+---------------+-----------------+--------------------------------------------------|
 | 1    | Uplink to hAP ax3   | strict    | any           | 1               | Trunk port receiving tagged and untagged traffic |
 | 2    | Management/Admin PC | strict    | only untagged | 1               | Local port for switch/server management          |
-| 3    | Proxmox Server (px1)| strict    | any           | 1               | Trunk for Proxmox (Host=Untagged, VMs=Tagged)    |
+| 3    | NixOS Server        | strict    | any           | 1               | Trunk for NixOS (Host=Untagged, Containers=Tag)  |
 | 4-8  | Thin Clients        | strict    | only untagged | 90              | Access ports for student Thin Clients            |
 
 /Note: The CSS610 serves as a temporary simulation for the planned CRS 24-Port Switch. The logic remains identical./
@@ -62,35 +63,37 @@ All networks are forced to use Cloudflare Family DNS (=1.1.1.3=, =1.0.0.3=) for 
 * Operational Notes & Maintenance
 - *Emergency Access*: If locked out via VLANs, connect a laptop to =ether2= on the hAP ax3. It defaults to the native =172.20.0.x= management subnet.
 - *Adding a new Teacher Wi-Fi*: Can be done by creating a new Virtual AP bound to =wifi1= and setting =datapath.vlan-id=89=.
-- *Proxmox LXC Networking*: When creating a container for students (e.g., Pi-hole or specific services), set the network interface tag to =90= in the Proxmox GUI. It will receive a =172.20.90.x= IP from the MikroTik DHCP server.
+- *NixOS Container Networking*: Networking is completely declarative. When adding a new container, it is defined in =gitNixos/common/network.nix= with a statically generated MAC address and assigned to a VLAN (e.g., VLAN 90 for student services). NixOS will automatically configure the required virtual interfaces and bridges on the host upon rebuilding.
 
 * Server & Container IP Allocation
-To maintain the "Keep it simple, stupid!" principle, all LXC containers and end-user devices are configured for DHCP. The MikroTik router assigns fixed IPs via static leases (=sLease=) based on MAC addresses. Only the core physical infrastructure (Router =hapax3=, Proxmox Host =px1=) retains hardcoded static IPs to prevent lockouts if the DHCP service fails.
 
-All =sLease= IPs are assigned below the dynamic DHCP pool threshold (.100).
+To maintain strict control and simplify administration, the network configuration is centrally managed via `gitNixos/common/network.nix`. This file acts as the Single Point of Truth (SPoT) for all IP addresses, VLANs, and MAC addresses. 
+
+The `nixos-containers` use generated, predictable MAC addresses mapped to static IPs within this configuration. Physical Thin Clients have their burned-in hardware MAC addresses registered in the same file to receive static DHCP leases (`sLease`) from the MikroTik router.
 
 ** 1. Infrastructure Core (Untagged / Management)
-These services only require access from the Admin network.
+These services operate on the native VLAN 1 and only require access from the Admin network.
 
 | Hostname      | IP Address    | Type   | Network / VLAN | Purpose                                    |
 |---------------+---------------+--------+----------------+--------------------------------------------|
-| px1           | 172.20.0.10   | Static | Admin (Untag)  | Proxmox Virtualization Environment Host    |
-| mgmt1         | 172.20.0.11   | sLease | Admin (Untag)  | Ansible, Scripts, etckeeper (LXC)          |
-| lldap         | 172.20.0.12   | sLease | Admin (Untag)  | LLDAP / LAM Directory Services (LXC)       |
-| apt-cacher    | 172.20.0.13   | sLease | Admin (Untag)  | apt-cacher-ng proxy (LXC)                  |
+| hapax3        | 172.20.0.1    | Static | Admin (Untag)  | Core Router & DHCP Server                  |
+| ngarumavtc1   | 172.20.0.10   | Static | Admin (Untag)  | NixOS Base Server / Host                   |
+| mgmt1         | 172.20.0.11   | Static | Admin (Untag)  | Ansible, Scripts, etckeeper (Container)    |
+| web01         | 172.20.0.21   | Static | Admin (Untag)  | Web Server / iPXE Boot Images (Container)  |
 
-** 2. Shared Services (Multi-Homed)
-These LXCs receive multiple virtual network interfaces in Proxmox (e.g., eth0=untagged, eth1=tag 89, eth2=tag 90) all set to DHCP. Clients connect to the IP in their respective subnet to keep traffic strictly on Layer 2.
+** 2. Shared Services (Multi-Homed Containers)
+Declaratively configured nixos-containers can receive multiple virtual network interfaces mapped to different bridges/VLANs (e.g., eth0=untagged, eth1=tag 89, eth2=tag 90). Clients connect to the IP in their respective subnet to keep traffic strictly on Layer 2.
 
 | Hostname      | IP Addresses                                       | Type   | Purpose                                            |
 |---------------+----------------------------------------------------+--------+----------------------------------------------------|
-| storage01     | .0.20 (Admin), .89.20 (Teachers), .90.20 (Students)| sLease | ZFS NFS Exports (Homes, Lehrpult, Briefkasten)     |
-| web01         | .0.21 (Admin), .89.21 (Teachers), .90.21 (Students)| sLease | Apache2 (Portal, iPXE HTTP-Boot images)            |
-| kiwix01       | .0.22 (Admin), .89.22 (Teachers), .90.22 (Students)| sLease | Offline Wikipedia / Khan Academy                   |
+| storage01     | .0.20 (Admin), .89.20 (Teachers), .90.20 (Students)| Static | ZFS NFS Exports (Homes, Lehrpult, Briefkasten)     |
+| kiwix01       | .0.22 (Admin), .89.22 (Teachers), .90.22 (Students)| Static | Offline Wikipedia / Khan Academy                   |
 
 ** 3. Student Environments & Endpoints
 | Hostname      | IP Address (Range)     | Type          | Network / VLAN | Purpose                                    |
 |---------------+------------------------+---------------+----------------+--------------------------------------------|
-| lxc-studentNN | 172.20.90.51 - .70     | sLease        | Students (90)  | 20x XFCE4 Workspaces (RDP Targets)         |
-| thin-clients  | .151 - .170            | sLease        | Students (90)  | Physical Business PCs (iPXE Boot -> RDP)   |
-| teacher-pcs   | .100 - .254            | sLease / DHCP | Teachers (89)  | School PCs (sLease) & Teacher BYOD (DHCP)  |
+| ctauth        | 172.20.90.12           | Static        | Students (90)  | Auth / Directory Services (Container)      |
+| ct90051 - 70  | 172.20.90.51 - .70     | Static        | Students (90)  | 20x XFCE4 Workspaces (Containers for RDP)  |
+| tc90151 - 170 | 172.20.90.151 - .170   | DHCP sLease   | Students (90)  | Physical Business PCs (iPXE Boot -> RDP)   |
+| tc01          | 172.20.90.100          | DHCP sLease   | Students (90)  | Example Endpoint Registration              |
+| teacher-pcs   | 172.20.89.100 - .254   | DHCP Dynamic  | Teachers (89)  | Teacher BYOD (DHCP Pool)                   |
