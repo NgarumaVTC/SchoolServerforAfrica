@@ -1,76 +1,325 @@
-#+Title: Implementation Roadmap: School Server Africa
-#+Author: Axel Ramge
-#+Date: 2026-04-29
+#+TITLE: KaziLab — Implementation Guide (NixOS)
+#+AUTHOR: Axel Ramge
+#+DATE: 2026-05-13
+#+OPTIONS: toc:2
+#+LANGUAGE: en
 
-* Phase 1: The Network Foundation (MikroTik)
-** 1.1 Basic Configuration MikroTik hAP ax3
-- [ ] Reset router to factory defaults (use Netinstall if necessary).
-- [ ] Configure WAN interface (DHCP client or PPPoE, depending on connection).
-- [ ] Create LAN bridge (group ports 2-5 and Wi-Fi).
-- [ ] Assign IP address to the LAN bridge (e.g., =10.0.0.1/24=).
+* Phase 1: Network Foundation (MikroTik hAP ax3)
 
-** 1.2 Base Services on the MikroTik
-- [ ] Setup DHCP server on the LAN bridge (range e.g., =10.0.0.100 - 10.0.0.254=).
-- [ ] Enable NAT / Masquerading for outbound routing (WAN).
-- [ ] DNS Settings: Set upstream to Cloudflare Family (=1.1.1.3=, =1.0.0.3=).
-- [ ] Enable NTP client (fetch time from the internet).
-- [ ] Enable NTP server (distribute time to the local network).
+** 1.1 Basic Configuration
+- [ ] Reset router to factory defaults (Netinstall if needed)
+- [ ] Configure WAN interface: =ether5= as DHCP client (Airtel cellular modem)
+- [ ] Create internal bridge for management ports (=ether2–ether4=)
+- [ ] Assign management IP: =172.20.0.1/24= on the bridge
+- [ ] Enable SSH: disable password auth, add admin Ed25519 public key
 
-* Phase 2: The Hypervisor (px1)
-** 2.1 Proxmox Bare Metal Installation (N100)
-- [ ] Write the latest Proxmox ISO to a USB flash drive via =dd= (direct mode).
-- [ ] Boot the N100 from the USB drive.
-- [ ] Perform installation (File system: ZFS (RAID0/Single Disk), assign static IP, e.g., =10.0.0.10/24=, Gateway/DNS =10.0.0.1=).
-- [ ] Reboot into the fresh system.
+** 1.2 VLAN Setup
+- [ ] Create VLAN 89 (Teachers) and VLAN 90 (Students) on =ether1= trunk
+- [ ] Configure =ether1= as trunk port: VLAN 1 untagged, VLAN 89/90 tagged
+- [ ] Create bridge per VLAN with appropriate IP addresses (see =network.org=)
 
-** 2.2 Proxmox Basic Configuration & etckeeper
-- [ ] Login via SSH (as =root=).
-- [ ] Comment out the Enterprise repo in =/etc/apt/sources.list.d/pve-enterprise.list=.
-- [ ] Add the No-Subscription repo.
-- [ ] Update the system (=apt update && apt full-upgrade -y=).
-- [ ] Install etckeeper: =apt install etckeeper git=
-- [ ] Check the first initial commit: =cd /etc && git status=
+** 1.3 DHCP Servers
+- [ ] DHCP for Management (=172.20.0.0/24=) — for admin access
+- [ ] DHCP for Students (=172.20.90.0/24=) — with PXE options:
+  - Option 66 (Next Server): IP of =web01= container (=172.20.90.21= or =0.21=)
+  - Option 67 (Boot File Name): =http://172.20.0.21/boot/boot.ipxe=
+- [ ] DHCP for Teachers (=172.20.89.0/24=) — dynamic pool, no PXE options
+- [ ] Register static DHCP leases for all thin clients by MAC address (see =network.org=)
 
-* Phase 3: The Management Layer
-** 3.1 The Management LXC
-- [ ] Download the latest Debian LXC template in Proxmox.
-- [ ] Create container "mgmt01" (unprivileged) (e.g., IP =10.0.0.20/24=).
-- [ ] Generate and deploy SSH keys (disable password login).
-- [ ] Install Ansible in the container: =apt install ansible git=.
-- [ ] Create initial Git directory structure (=/root/ansible-school/=) for playbooks.
+** 1.4 DNS, NTP, NAT
+- [ ] Upstream DNS: Cloudflare Family =1.1.1.3= / =1.0.0.3= (malware + adult content filter)
+- [ ] Enable NTP client (=pool.ntp.org=); enable NTP server broadcast for local network
+- [ ] Timezone: =Africa/Dar_es_Salaam=
+- [ ] NAT masquerade on =ether5= (WAN)
 
-* Phase 4: The Boot Protocol & Network Services
-** 4.1 The Web Server (Apache LXC)
-- [ ] Create container "web01" (e.g., IP =10.0.0.30/24=).
-- [ ] Install Apache2 (=apt install apache2=).
-- [ ] Create directory for iPXE files (e.g., =/var/www/html/boot/=).
+** 1.5 Firewall Rules
+- [ ] Drop all traffic from Students/Wi-Fi (=.90.x=, =.91.x=) to Teachers (=.89.x=) and Management (=.0.x=)
+- [ ] Drop all traffic from Teachers to Management network
+- [ ] Management and admin interfaces accessible only from Management subnet and WireGuard peers
+- [ ] Wi-Fi: enable AP isolation (=station-roaming=no=)
 
-** 4.2 Generate & Deploy iPXE Images
-- [ ] Prepare minimal Debian root file system (=squashfs=) for the Thin Clients (on mgmt01 or your Mac).
-- [ ] Extract kernel (=vmlinuz=) and =initrd= of the Debian system.
-- [ ] Write an iPXE boot script (=boot.ipxe=) that loads the kernel/initrd via HTTP from the Apache LXC.
-- [ ] Copy files (=vmlinuz=, =initrd=, =squashfs=, =boot.ipxe=) to =/var/www/html/boot/= on the Apache LXC.
+** 1.6 WireGuard VPN (Remote Access)
+- [ ] Generate WireGuard keypair on hAP ax3
+- [ ] Configure tunnel to VPS/home server in Germany (persistent-keepalive to punch through CGNAT)
+- [ ] Verify tunnel stays up after cellular reconnect
 
-** 4.3 Adjust DHCP Options in MikroTik (TFTP/iPXE)
-- [ ] In MikroTik DHCP: Set "Boot File Name" to the iPXE binary.
-- [ ] Point "Next Server" to the IP of the iPXE TFTP server (can be px1 or MikroTik itself, depending on setup).
-- [ ] Configure DHCP so that iPXE clients are redirected to the URL =http://10.0.0.30/boot/boot.ipxe=.
+** 1.7 Bandwidth Management (QoS)
+- [ ] Per-student downstream/upstream queue on =172.20.90.0/24=
+- [ ] Block or throttle video streaming services via Layer-7 or DNS blackhole
 
-* Phase 5: Storage & User Management
-** 5.1 The Storage LXC
-- [ ] Create privileged LXC "storage01".
-- [ ] On the PVE host: Create ZFS dataset for student homes.
-- [ ] Pass through the dataset via bind-mount into "storage01".
-- [ ] Install NFS kernel server in "storage01" and export the passed-through directory.
+* Phase 2: NixOS Server Installation
 
-** 5.2 User Management (LLDAP)
-- [ ] Create container "ldap01".
-- [ ] Install Docker (easiest for LLDAP).
-- [ ] Spin up the LLDAP container.
-- [ ] Create test user.
+** 2.1 Prepare Installation Media
+- [ ] Download latest NixOS minimal ISO
+- [ ] Write to USB: =dd if=nixos-minimal.iso of=/dev/sdX bs=4M status=progress=
+- [ ] Boot server from USB
 
-* Phase 6: The Thin Clients
-** 6.1 PXE Boot Test
-- [ ] Connect the "ancient PC" to the network.
-- [ ] In BIOS: Set Network Boot (PXE) as the first option.
-- [ ] Boot. Verify if it receives an IP from MikroTik, loads iPXE, and pulls the Debian image from Apache.
+** 2.2 Partition and ZFS Pool Setup (System Drives — 3-way Mirror)
+#+BEGIN_SRC bash
+# Identify the three datacenter SSDs (SM883), e.g. /dev/sda, /dev/sdb, /dev/sdc
+# Partition each identically:
+for disk in /dev/sda /dev/sdb /dev/sdc; do
+  parted $disk -- mklabel gpt
+  parted $disk -- mkpart ESP fat32 1MB 512MB
+  parted $disk -- set 1 esp on
+  parted $disk -- mkpart primary 512MB 100%
+done
+
+# Create ZFS 3-way mirror (rpool) on partition 2 of each drive
+zpool create -f \
+  -o ashift=12 \
+  -O compression=zstd \
+  -O atime=off \
+  -O xattr=sa \
+  -O mountpoint=none \
+  rpool mirror /dev/sda2 /dev/sdb2 /dev/sdc2
+
+# System dataset (128 GB quota)
+zfs create -o refreservation=none -o quota=128G rpool/nixos
+zfs create rpool/nixos/root
+zfs create rpool/nixos/nix
+zfs create rpool/nixos/var
+
+# Admin/teacher home and critical data (remaining space)
+zfs create rpool/critical
+zfs create rpool/critical/homes
+#+END_SRC
+
+** 2.3 ZFS Pool Setup (Student Data — 2-drive Mirror)
+#+BEGIN_SRC bash
+# Two Samsung 870 EVO 2TB drives, e.g. /dev/sdd, /dev/sde
+zpool create -f \
+  -o ashift=12 \
+  -O compression=zstd \
+  -O atime=off \
+  -O xattr=sa \
+  -O mountpoint=none \
+  tank mirror /dev/sdd /dev/sde
+
+# Student home directories with per-student quotas (set via NixOS config)
+zfs create tank/students
+
+# Shared folders
+zfs create -o readonly=off  tank/ClassMaterial   # teachers write, students read
+zfs create -o readonly=off  tank/DropBox         # students write-only drop-in
+#+END_SRC
+
+** 2.4 Mount Filesystems for Installation
+#+BEGIN_SRC bash
+mount -t zfs rpool/nixos/root /mnt
+mkdir -p /mnt/{boot,nix,var}
+mount -t zfs rpool/nixos/nix  /mnt/nix
+mount -t zfs rpool/nixos/var  /mnt/var
+# Boot: use the EFI partition from the first system drive
+mkfs.fat -F32 /dev/sda1
+mount /dev/sda1 /mnt/boot
+#+END_SRC
+
+** 2.5 Generate and Edit NixOS Configuration
+#+BEGIN_SRC bash
+nixos-generate-config --root /mnt
+# Edit /mnt/etc/nixos/configuration.nix to set:
+# - hostname: ngarumavtc1
+# - static IP: 172.20.0.10/24, gateway 172.20.0.1
+# - SSH: passwordAuthentication = false; authorizedKeys for admin
+# - ZFS pool import and dataset mounts
+# - NUT (UPS) integration
+# - Enable WireGuard peer config
+#+END_SRC
+
+** 2.6 Install and Reboot
+#+BEGIN_SRC bash
+nixos-install
+reboot
+# Remove USB stick
+#+END_SRC
+
+* Phase 3: NixOS Declarative Configuration
+
+** 3.1 Git Repository Structure
+After first boot, initialise the config repository:
+#+BEGIN_SRC bash
+cd /etc/nixos
+git init
+git add .
+git commit -m "initial NixOS configuration"
+# Push to GitHub: NgarumaVTC/gitNixos (public)
+#+END_SRC
+
+The repository becomes the *Single Point of Truth* for the entire system. All changes
+go through Git. Roll back with =nixos-rebuild switch --rollback= or by reverting a
+commit and rebuilding.
+
+** 3.2 Recommended Module Structure
+#+BEGIN_EXAMPLE
+/etc/nixos/
+  configuration.nix       # top-level imports
+  common/
+    network.nix           # ALL IPs, MACs, VLANs defined here
+    zfs.nix               # pool, dataset, snapshot schedules
+    users.nix             # admin accounts, SSH keys
+    nut.nix               # UPS shutdown integration
+    wireguard.nix         # VPN peer config
+  containers/
+    ct-auth.nix           # LLDAP container
+    web01.nix             # Nginx + iPXE server
+    kiwix01.nix           # offline knowledge base
+    students.nix          # 20x XFCE4/RDP workspace containers
+  hardware-configuration.nix
+#+END_EXAMPLE
+
+** 3.3 NixOS Containers (systemd-nspawn)
+Each service runs in an isolated =nixos-containers= unit. Example skeleton for a
+student workspace container:
+
+#+BEGIN_SRC nix
+# containers/students.nix (generates ct90051 through ct90070)
+containers."ct90051" = {
+  autoStart = true;
+  privateNetwork = true;
+  hostAddress = "172.20.90.1";
+  localAddress = "172.20.90.51";
+  bindMounts."/home/student" = {
+    hostPath = "/tank/students/student51";
+    isReadOnly = false;
+  };
+  config = { pkgs, ... }: {
+    imports = [ ./studentssoftware.nix ];
+    services.xrdp.enable = true;
+    services.xrdp.defaultWindowManager = "xfce4-session";
+  };
+};
+#+END_SRC
+
+** 3.4 UPS Integration (NUT)
+#+BEGIN_SRC nix
+# common/nut.nix
+power.ups = {
+  enable = true;
+  mode = "standalone";
+  ups."apc750" = {
+    driver = "usbhid-ups";
+    port = "auto";
+    description = "APC Smart-UPS 750VA";
+  };
+};
+# Configure upsmon to trigger clean shutdown at battery low
+#+END_SRC
+
+* Phase 4: iPXE Boot Infrastructure
+
+** 4.1 web01 Container (Nginx + Boot Images)
+The =web01= NixOS container serves iPXE boot images over HTTP. Multi-homed: accessible
+from both Admin (=172.20.0.21=) and Students (=172.20.90.21=) networks via bind-mounts.
+
+#+BEGIN_SRC nix
+# containers/web01.nix
+containers."web01" = {
+  autoStart = true;
+  bindMounts."/var/www/boot" = {
+    hostPath = "/srv/boot";
+    isReadOnly = true;
+  };
+  config = { pkgs, ... }: {
+    services.nginx.enable = true;
+    services.nginx.virtualHosts."_".root = "/var/www/boot";
+  };
+};
+#+END_SRC
+
+** 4.2 Alpine Linux Thin Client Image
+Build an Alpine Linux netboot image (kernel + initramfs) configured as a kiosk:
+- Auto-login as =kiosk= user
+- Launch =xfreerdp= in fullscreen, pointing to the student's assigned container
+- No writable local storage — pure RAM disk
+
+The iPXE boot script (=boot.ipxe=) maps each thin client's MAC address to a specific
+container IP for the RDP connection.
+
+#+BEGIN_EXAMPLE
+# boot.ipxe (served by web01)
+#!ipxe
+set base http://172.20.0.21/alpine
+kernel ${base}/vmlinuz-lts alpine_repo=${base}/apks quiet
+initrd ${base}/initramfs-lts
+imgargs vmlinuz-lts ip=dhcp modloop=${base}/modloop-lts
+  rdp_host=172.20.90.${last-octet-of-ip}   # maps client IP to container
+boot
+#+END_EXAMPLE
+
+** 4.3 TFTP / iPXE Chainloading
+The MikroTik DHCP points clients to the Unidirectional iPXE binary via TFTP (Option 66/67).
+iPXE then immediately switches to HTTP for the larger kernel and initramfs — much faster
+and more reliable than TFTP for large files.
+
+* Phase 5: Identity & User Management
+
+** 5.1 LLDAP Container (ct-auth)
+LLDAP provides a minimal LDAP server with a clean web UI at =http://172.20.90.12:17170=.
+Backend: SQLite (minimal footprint, no PostgreSQL dependency).
+
+#+BEGIN_SRC nix
+# containers/ct-auth.nix
+containers."ct-auth" = {
+  autoStart = true;
+  localAddress = "172.20.90.12";
+  bindMounts."/var/lib/lldap" = {
+    hostPath = "/tank/critical/lldap";
+    isReadOnly = false;
+  };
+  config = { pkgs, ... }: {
+    services.lldap = {
+      enable = true;
+      settings.ldap_base_dn = "dc=ngarumavtc,dc=tz";
+    };
+  };
+};
+#+END_SRC
+
+** 5.2 Bulk Student Import ("60-in-60-out")
+A NixOS activation script (or standalone tool) reads a CSV file with student data
+and creates/removes LLDAP accounts and ZFS home datasets accordingly:
+
+#+BEGIN_EXAMPLE
+# students.csv format
+username,displayname,grade
+s2026001,Amina Juma,2026
+s2026002,Baraka Mushi,2026
+...
+#+END_EXAMPLE
+
+At the start of each school year: replace the CSV, run the import script, done.
+Graduated students are archived (home directory snapshotted, account disabled).
+
+* Phase 6: Thin Client Preparation
+
+** 6.1 Physical Hardening
+For each HP ProDesk / Dell OptiPlex thin client:
+- [ ] Remove hard drive (no local state — boot is network-only)
+- [ ] Block unused USB ports with silicon dust caps
+- [ ] Install DisplayPort to HDMI cable (1m, no extensions)
+- [ ] Add strain relief (zip tie) to power and display cables
+- [ ] Label with assigned container number (=TC-51= through =TC-70=)
+
+** 6.2 BIOS Configuration
+- [ ] Set Network Boot (PXE) as the first and only boot device
+- [ ] Disable USB boot
+- [ ] Set a BIOS password (prevents students from changing boot order)
+
+** 6.3 Boot Test
+- [ ] Connect client to student LAN port on the CRS326 switch
+- [ ] Power on → client should receive DHCP from MikroTik
+- [ ] iPXE loads → Alpine Linux boots from HTTP → xfreerdp opens fullscreen
+- [ ] Verify RDP connects to the correct container
+
+* Phase 7: Operational Validation
+
+- [ ] All 20 thin clients boot and reach their containers simultaneously
+- [ ] ZFS snapshot schedule active (=zfs list -t snapshot=)
+- [ ] NUT shuts down cleanly on battery test (=upsmon -c fsd= to simulate)
+- [ ] WireGuard tunnel survives a cellular reconnect
+- [ ] IPMI accessible from Germany via VPN
+- [ ] Kiwix serving offline Wikipedia on =172.20.90.22=
+- [ ] ClassMaterial folder: teachers can write, students read-only
+- [ ] DropBox folder: students can write, cannot read or delete
+- [ ] Bandwidth cap active: confirm a single client cannot saturate the WAN link

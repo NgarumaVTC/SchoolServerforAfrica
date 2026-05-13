@@ -1,0 +1,157 @@
+#+TITLE: KaziLab — Background & Rationale
+#+AUTHOR: Axel Ramge
+#+DATE: 2026-05-13
+#+OPTIONS: toc:2
+#+LANGUAGE: en
+
+* Deployment Context
+
+- *Location:* Ngaruma Vocational Training Centre, Kilimanjaro Region, Tanzania
+- *Altitude:* 1,300 m a.s.l. — moderate climate, temperatures < 30°C
+- *Environment:* High dust exposure (fine red volcanic sand)
+- *Students:* 120 total, 60 per grade
+- *Trades taught:*
+  - CJ — Carpentry and Joinery
+  - EL — Electrical Installation
+  - MB — Masonry and Bricklaying
+  - MVM — Motor Vehicle Mechanics
+  - DSCT — Design, Sewing and Cloth Technology
+  - ICT — Information and Communications Technology
+
+** Existing Hardware (Before KaziLab)
+
+- 20 × Business PCs (HP ProDesk/EliteDesk SFF), manufactured approx. 2010–2015
+- 2 GB RAM per machine; mechanical 240 GB HDDs
+- Network cards present but not connected
+- Monitors ~15", HDMI inputs but wired via analog VGA
+- Operating systems: Windows 7 and Windows 10 (pirated, unpatched, heavily infected)
+- "Networking": USB flash drives carried by hand between machines
+- Internet: LTE/5G via Airtel router — available but not distributed to students
+
+* The Problems
+
+** 1. Unsupported and Unlicensed Operating Systems
+Windows is no longer supported on this hardware (and would be completely unaffordable
+regardless). Upgrading to current Windows versions is impossible due to hardware
+requirements and license costs. The existing installs are pirated copies, common
+across the region but representing a real educational and security liability.
+
+** 2. Physical Degradation
+USB ports fail after an estimated 200 insertion cycles under brute-force use and
+fine-dust conditions. Interfaces wear out faster than the machines themselves.
+
+** 3. Poor Display Quality
+Analog VGA signals cause flickering and image blur in this environment, leading to
+rapid eye fatigue when students read code or work with CAD drawings.
+
+** 4. Zero Networking Education
+Students cannot learn networking in practice because there is no network to practice
+on. The classroom is completely isolated from both the internet and each other.
+
+** 5. Virus Spread via USB
+Because USB drives are the only way to share files, they are also the primary vector
+for malware propagation across all 20 machines.
+
+** 6. Maintenance Impossible at Scale
+Keeping 20 independent Windows installations patched and functional with limited
+on-site technical capacity is not feasible.
+
+* The Solution
+
+** Guiding Principles
+
+- *LTSP-inspired thin client architecture:* The old business PCs become pure display
+  terminals. All computation runs on one server.
+- *Declarative, reproducible configuration:* NixOS. The entire system state lives in
+  one Git repository. Any admin anywhere in the world can reproduce or repair it.
+- *Zero local state on clients:* Thin clients boot Alpine Linux from the network.
+  No local disk, no local infection, no local state. A reboot is a factory reset.
+- *Open Source only:* NixOS, Alpine Linux, MikroTik RouterOS. No proprietary
+  licenses, no vendor lock-in, no renewal costs.
+- *10-year target lifespan:* Hardware choices, component quality, and maintenance
+  design are all optimised for longevity over flash.
+- *Remote maintainability:* The entire system — including out-of-band hardware
+  management (IPMI) — is accessible via WireGuard VPN from Germany.
+
+** What Changes for Students
+
+| Before                            | After                                  |
+|-----------------------------------+----------------------------------------|
+| Windows 7/10, heavily infected    | Clean XFCE4 desktop, always fresh      |
+| No network, USB-only file sharing | Full LAN, shared class materials       |
+| No internet access                | Bandwidth-managed internet per student |
+| VGA blur and flicker              | Digital HDMI, sharp text               |
+| 20 machines to maintain           | 1 server to maintain                   |
+| Virus spreads via USB             | Clients are read-only — immune         |
+
+** What Changes for Teachers
+
+- Software updates happen once on the server; all 20 desktops follow immediately.
+- Student home directories are persistent and individually assigned.
+- Class materials distributed via shared read-only folder; assignments collected
+  via write-only drop-box. No USB drives needed.
+- In an emergency, the admin in Germany can diagnose and repair remotely via VPN —
+  even if the OS has crashed (IPMI out-of-band access).
+
+* Procurement Strategy
+
+** Server Components (Imported from Germany)
+Strategic use of refurbished enterprise hardware (with warranty) for critical
+components — highest quality within a tight budget. Small components travel as
+carry-on or checked luggage during scheduled flights.
+
+** Bulk Consumables
+Mice, keyboards, cables: bought in bulk for high on-site redundancy at low unit
+prices. Failure of a mouse is a non-event when five spares are in the drawer.
+
+** Large Items (Sourced Locally in Moshi)
+Case, UPS, and power strip are procured via a local computer shop (InnoSykes
+Computer, Moshi). Transporting a PC case from Germany to Tanzania as checked luggage
+means paying to ship empty space.
+
+* Assembly & Logistics
+
+** Server Assembly
+The local computer shop in Moshi assembles the server from components brought from
+Germany. This establishes a direct service relationship on-site and avoids the risk
+of physical damage during air transport of an assembled machine.
+
+** Initial Configuration (Germany)
+- NixOS installation and full configuration
+- All automation (student import from CSV, ZFS pools, container setup)
+- Network config, VPN setup
+- Server disassembled for transport
+
+** On-Site Setup (Tanzania)
+- Hardware installation and cable management in the classroom
+- Physical hardening: strain reliefs, dust caps on unused ports, wall mounting
+- Short teacher training: dust filter cleaning schedule, cable replacement procedure
+- Software commissioning should be close to push-button due to declarative NixOS config
+
+* Why Not a Rack Server?
+
+During planning, the obvious question arises: used Dell PowerEdge or HP ProLiant
+servers are extremely cheap on the refurbished market. They are excluded for four
+concrete technical reasons:
+
+** 1. Noise
+Industrial rack servers cool their components with fans running at 10,000+ RPM.
+The resulting noise makes teaching in the same room impossible. There is no dedicated,
+soundproofed server room. The server must be whisper-quiet inside the classroom.
+
+** 2. No Dust Protection
+Enterprise hardware is designed for clean, air-conditioned data centres. It has no
+dust filters. In the red fine-dust environment near Kilimanjaro, the cooling fins
+would clog in weeks, causing thermal failure.
+
+** 3. Power Consumption
+Older Xeon-based rack servers idle at power levels that would instantly overload
+the planned 750VA UPS and stress the already-unstable local grid. The AMD Ryzen 9
+5950X running at 65W TDP delivers vastly superior performance per watt.
+
+** 4. Spare Parts and Logistics
+Rack servers use proprietary PSU and fan form factors. A broken component in Tanzania
+cannot be sourced locally. The KaziLab server is built entirely on the global ATX
+standard — in an emergency, the local computer shop in Moshi can adapt components
+from any standard desktop. A 19-inch rack unit also cannot be transported cost-
+effectively as checked luggage.

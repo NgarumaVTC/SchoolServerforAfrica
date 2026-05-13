@@ -1,65 +1,146 @@
-#+TITLE: Disaster Recovery Guide - Proxmox School Server (px1)
+#+TITLE: KaziLab — Disaster Recovery Guide (NixOS Server)
 #+AUTHOR: Axel Ramge
-#+DATE: 2026-05-03
+#+DATE: 2026-05-13
 #+OPTIONS: toc:2
+#+LANGUAGE: en
 
 * Overview
-This document describes the steps to restore the Proxmox School Server (px1) from the ZFS-based backup stored on mbp2.
+
+This document describes the steps to restore the NixOS school server from the
+ZFS-based backup. The procedure is designed to be executable by the remote admin
+in Germany via WireGuard VPN where possible, and on-site otherwise.
 
 ** Backup Details
-- Backup Server (mbp2): =172.20.0.254=
-- Remote User: =ramge=
-- Remote Path: =~/sync/gh/NgarumaVTC/SchoolServerforAfrica/backup/2026-05-03_Debian/=
-- Disk Target: =/dev/nvme0n1=
+- Backup target: 2× Transcend StoreJet 25M3C USB-C drives (weekly rotation, on-site)
+- Off-site copy: weekly ZFS send to admin machine in Germany (via WireGuard)
+- Method: =zfs send | zfs receive= (incremental snapshots, compressed)
+- NixOS system config: Git repository (GitHub: NgarumaVTC/gitNixos)
+
+** Recovery Scenarios
+
+| Scenario                       | Recovery Path                                  |
+|--------------------------------+-------------------------------------------------|
+| Misconfiguration / bad update  | =nixos-rebuild switch --rollback=              |
+| ZFS dataset corruption         | =zfs rollback= to last snapshot                |
+| Single drive failure (mirror)  | =zpool replace= — no downtime                  |
+| Full disk failure + OS lost    | This document (Phases 1–4)                     |
+| Total hardware loss            | Replace hardware, follow Phases 1–4 from USB   |
 
 * Phase 1: Environment Setup
-1. Boot the server using the **NixOS Minimal Live USB**.
-2. Set the keyboard layout:
-   #+begin_src bash
+
+1. Boot the server using the *NixOS Minimal Live USB* (keep one labelled and stored
+   next to the server).
+2. Set keyboard layout:
+   #+BEGIN_SRC bash
    loadkeys de
-   #+end_src
-3. Ensure network connectivity to mbp2:
-   #+begin_src bash
+   #+END_SRC
+3. Verify network connectivity to backup source:
+   #+BEGIN_SRC bash
+   # If recovering from on-site USB drive:
+   lsblk   # identify the Transcend backup drive
+
+   # If recovering from off-site (Germany) via VPN — WireGuard must be
+   # configured on the live USB or another network path must be available.
    ping -c 3 172.20.0.254
-   #+end_src
+   #+END_SRC
 
 * Phase 2: Partitioning & Bootloader
+
 ** 1. Restore Partition Table (GPT)
-#+begin_src bash
-ssh ramge@172.20.0.254 "cat ~/sync/gh/NgarumaVTC/SchoolServerforAfrica/backup/2026-05-03_Debian/proxmox_gpt.bak" > /tmp/proxmox_gpt.bak
-sgdisk --load-backup=/tmp/proxmox_gpt.bak /dev/nvme0n1
-partprobe /dev/nvme0n1
-#+end_src
+#+BEGIN_SRC bash
+# Restore GPT from backup (replace source path as appropriate)
+cat /mnt/backup/ngarumavtc1_gpt.bak | sgdisk --load-backup=/dev/stdin /dev/sda
+sgdisk --load-backup=/tmp/ngarumavtc1_gpt.bak /dev/sda
+partprobe /dev/sda
+# Repeat for /dev/sdb and /dev/sdc (3-way mirror)
+#+END_SRC
 
-** 2. Restore BIOS-Boot (p1)
-#+begin_src bash
-ssh ramge@172.20.0.254 "cat ~/sync/gh/NgarumaVTC/SchoolServerforAfrica/backup/2026-05-03_Debian/proxmox_boot_p1.img" | dd of=/dev/nvme0n1p1 status=progress
-#+end_src
+** 2. Restore EFI Partition
+#+BEGIN_SRC bash
+cat /mnt/backup/ngarumavtc1_efi.img.zst | zstd -d | dd of=/dev/sda1 status=progress
+#+END_SRC
 
-** 3. Restore EFI-Partition (p2)
-#+begin_src bash
-ssh ramge@172.20.0.254 "cat ~/sync/gh/NgarumaVTC/SchoolServerforAfrica/backup/2026-05-03_Debian/proxmox_efi_p2.img.zst" | zstd -d | dd of=/dev/nvme0n1p2 status=progress
-#+end_src
+* Phase 3: ZFS Pool Recovery
 
-* Phase 3: ZFS Data Recovery
-** 1. Create a fresh ZFS Pool
-#+begin_src bash
-# Use ashift=12 for modern NVMe drives
-zpool create -f -o ashift=12 -R /mnt rpool /dev/nvme0n1p3
-#+end_src
+** 1. Create Fresh ZFS Pool (if drives are replaced)
+#+BEGIN_SRC bash
+# 3-way mirror on the three datacenter SSDs
+zpool create -f \
+  -o ashift=12 \
+  -O compression=zstd \
+  -O atime=off \
+  -O xattr=sa \
+  -O mountpoint=none \
+  -R /mnt \
+  rpool mirror /dev/sda2 /dev/sdb2 /dev/sdc2
+
+# 2-drive mirror for student data
+zpool create -f \
+  -o ashift=12 \
+  -O compression=zstd \
+  -O atime=off \
+  -O xattr=sa \
+  -O mountpoint=none \
+  tank mirror /dev/sdd /dev/sde
+#+END_SRC
 
 ** 2. Restore Data via ZFS Receive
-#+begin_src bash
-ssh ramge@172.20.0.254 "cat ~/sync/gh/NgarumaVTC/SchoolServerforAfrica/backup/2026-05-03_Debian/px1_zfs_fullbackup.zst" | zstd -d | zfs receive -F rpool
-#+end_src
+#+BEGIN_SRC bash
+# From on-site USB backup drive (mounted at /mnt/backup):
+cat /mnt/backup/rpool_full.zst | zstd -d | zfs receive -F rpool
+cat /mnt/backup/tank_full.zst  | zstd -d | zfs receive -F tank
 
-* Phase 4: Finalization
-1. Unmount and export the pool:
-   #+begin_src bash
-   zpool export rpool
-   #+end_src
-2. Reboot the system:
-   #+begin_src bash
-   reboot
-   #+end_src
-3. Remove the USB stick.
+# From Germany via SSH over WireGuard:
+ssh ramge@172.20.0.254 "cat ~/backup/rpool_full.zst" | zstd -d | zfs receive -F rpool
+#+END_SRC
+
+* Phase 4: NixOS System Reinstall from Git
+
+If the NixOS system dataset is lost or corrupted, reinstall from the Git config:
+
+#+BEGIN_SRC bash
+# 1. Mount target filesystems
+mount -t zfs rpool/nixos/root /mnt
+mkdir -p /mnt/{boot,nix,var}
+mount -t zfs rpool/nixos/nix /mnt/nix
+mount -t zfs rpool/nixos/var /mnt/var
+mount /dev/sda1 /mnt/boot
+
+# 2. Clone the NixOS config from GitHub
+nix-shell -p git
+git clone https://github.com/NgarumaVTC/gitNixos /mnt/etc/nixos
+
+# 3. Rebuild and install
+nixos-install --root /mnt
+#+END_SRC
+
+* Phase 5: Finalization
+
+#+BEGIN_SRC bash
+# Export pools cleanly before reboot
+zpool export rpool
+zpool export tank
+
+reboot
+# Remove USB stick
+#+END_SRC
+
+After reboot, verify:
+- [ ] NixOS boots cleanly to login prompt
+- [ ] All ZFS pools import automatically (=zpool status=)
+- [ ] All containers start (=nixos-container list=)
+- [ ] WireGuard VPN tunnel re-establishes
+- [ ] IPMI accessible from Germany
+- [ ] PXE boot of one thin client successful
+
+* Routine Maintenance (Prevention)
+
+| Task                          | Frequency | Responsible |
+|-------------------------------+-----------+-------------|
+| Dust filter cleaning          | Monthly   | On-site     |
+| ZFS snapshot verification     | Automatic | NixOS cron  |
+| Rotate off-site backup drive  | Weekly    | On-site     |
+| =zpool scrub= (data integrity) | Monthly   | NixOS cron  |
+| NixOS security updates        | Monthly   | Remote/VPN  |
+| UPS battery test              | Quarterly | Remote/VPN  |
+| Student account rotation      | Annual    | Remote/VPN  |

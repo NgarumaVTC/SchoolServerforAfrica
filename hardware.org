@@ -1,0 +1,413 @@
+#+TITLE: KaziLab — Hardware & Bill of Materials
+#+AUTHOR: Axel Ramge
+#+DATE: 2026-05-13
+#+OPTIONS: toc:2
+#+LANGUAGE: en
+
+* Bill of Materials
+
+#+CAPTION: Bill of Materials (BOM)
+| No. | Description                                         | Qty | Unit Price |   Total |
+|-----+-----------------------------------------------------+-----+------------+---------|
+|   1 | ATX Midi-Tower Case (incl. local assembly)          |   1 |     170.00 |  170.00 |
+|   2 | APC Smart-UPS 750VA (Line-Interactive)              |   1 |     400.00 |  400.00 |
+|   3 | Surge Protector Power Strip (Brennenstuhl/APC)      |   1 |      40.00 |   40.00 |
+|   4 | Seasonic Focus GX 750W ATX 3.1                      |   1 |      83.19 |   83.19 |
+|   5 | ASRock Rack X570D4U                                 |   1 |     377.00 |  377.00 |
+|   6 | AMD Ryzen 9 5950X                                   |   1 |     360.00 |  360.00 |
+|   7 | Noctua NH-U12S redux CPU Cooler                     |   1 |      54.60 |   54.60 |
+|   8 | Noctua PWM Case Fan (120/140mm)                     |   4 |      20.00 |   80.00 |
+|   9 | UDIMM 32GB DDR4-3200 ECC unbuffered                 |   2 |     190.00 |  380.00 |
+|  10 | Samsung SM883 480GB Datacenter SSD                  |   3 |     110.00 |  330.00 |
+|  11 | Samsung 870 EVO 2TB SATA SSD                        |   2 |     140.00 |  280.00 |
+|  12 | Intel X710-DA2 LAN Adapter (2x SFP+)                |   1 |     173.00 |  173.00 |
+|  13 | 10G SFP+ DAC Cable, Twinax                          |   1 |      15.00 |   15.00 |
+|  14 | Logitech HD Pro C920 Webcam                         |   1 |      49.99 |   49.99 |
+|  15 | Edifier R1280DB Speakers (Pair)                     |   1 |     130.00 |  130.00 |
+|  16 | Cubilux USB to TOSLINK Converter                    |   1 |      20.00 |   20.00 |
+|  17 | Optical Digital Audio Cable (Toslink) 10m           |   1 |      12.00 |   12.00 |
+|  18 | Copper Speaker Cable 2.5 mm² (per meter)            |  18 |       1.50 |   27.00 |
+|  19 | MikroTik hAP ax3 (Existing Stock)                   |   1 |       0.00 |    0.00 |
+|  20 | MikroTik CRS326-24G-2S+RM Switch                    |   1 |     140.00 |  140.00 |
+|  21 | Network Cables (Custom made / Existing Stock)       |  25 |       0.00 |    0.00 |
+|  22 | StarTech 7-Port Industrial USB 3.0 Hub              |   1 |      82.40 |   82.40 |
+|  23 | Logitech K120 Keyboard US Layout                    |  22 |       8.85 |  194.70 |
+|  24 | Logitech B100 Optical Mouse USB                     |  25 |       3.56 |   89.00 |
+|  25 | DisplayPort to HDMI Adapter Cable 1m                |  22 |       6.00 |  132.00 |
+|  26 | Sacrificial USB-A 3.0 Extension Cable (15-30cm)     |   7 |       3.00 |   21.00 |
+|  27 | USB Silicon Dust Caps (Set)                         |   1 |       4.29 |    4.29 |
+|-----+-----------------------------------------------------+-----+------------+---------|
+|     | *Total (EUR)*                                       |     |            | 3645.17 |
+#+TBLFM: $5=$3*$4;%.2f::@>$5=vsum(@2..@-1);%.2f
+
+* Case: ATX Midi-Tower (Local Procurement)
+- *Part Number:* Generic (local procurement on-site)
+- *Unit Price:* approx. 170.00 € (incl. local assembly by InnoSykes Computer, Moshi)
+- *Quantity:* 1
+
+** Why this part?
+Transporting a PC case from Germany to Tanzania in checked luggage means paying to
+ship empty space. The case is sourced brand-agnostic through the local computer shop,
+which also handles professional assembly and initial functional testing.
+
+Technical mandate for the shop: mesh front design with accessible dust filters;
+internal positive air pressure via asymmetrical fan configuration; clearance for a
+158 mm CPU cooler; minimum two front fans.
+
+** Assembly Note
+The server case is wall-mounted with significant clearance from the floor, secured
+with a padlock and chain.
+
+** Maintenance Note
+Dust filters must be cleaned on a regular schedule. Frequency depends on observed
+dust accumulation — check monthly, clean as needed.
+
+* Power: UPS 750VA Line-Interactive (Local Procurement)
+- *Reference:* APC Smart-UPS SMT750IC
+- *Unit Price:* approx. 400.00 € (budget placeholder for local market)
+- *Quantity:* 1
+
+** Why this part?
+Lead-acid batteries cannot be transported by air (hazmat regulations). The UPS is
+sourced locally. Line-interactive with AVR (Automatic Voltage Regulation) is
+mandatory to smooth out Tanzanian grid fluctuations. The primary role is not hours
+of runtime but absorbing voltage spikes and bridging blackouts long enough for an
+automated clean shutdown — essential for protecting the ZFS pool.
+
+APC Smart-UPS is specified as the lead brand for best Linux/NUT compatibility.
+
+** Purchasing Spec (If APC unavailable)
+Line-Interactive, minimum 750VA, AVR, and a physical communication port (USB or
+RJ45) for OS shutdown signal. Acceptable alternatives: CyberPower, Eaton.
+
+* Power: Surge Protector Power Strip
+- *Reference:* Brennenstuhl Premium-Protect-Line or APC SurgeArrest
+- *Unit Price:* approx. 40.00 €
+- *Quantity:* 1 (recommend 2 including a cold spare)
+
+** Why this part?
+Acts as the "electrical sacrificial anode" upstream of the UPS. In the event of a
+catastrophic voltage spike (lightning, grid fault), this absorbs the destructive
+energy first — protecting the 400 EUR UPS. If it triggers, only a cheap power strip
+needs replacing.
+
+* Power: Seasonic Focus GX 750W ATX 3.1
+- *Part Number:* FOCUS-GX-750-V4-WHITE
+- *Unit Price:* 83.19 €
+- *Quantity:* 1
+
+** Why this part?
+Capacitor quality is critical given local grid instability. This PSU uses 105°C-rated
+Japanese capacitors. At 750W capacity for a system drawing ~120W under load, it
+operates permanently far below thermal stress. 10-year manufacturer warranty.
+
+** Alternatives
+Corsair RM750x
+
+* Motherboard: ASRock Rack X570D4U (AMD AM4)
+- *Part Number:* X570D4U
+- *Unit Price:* approx. 377.00 €
+- *Quantity:* 1
+
+** Why this part?
+A dedicated server motherboard with IPMI/BMC enables full out-of-band management.
+Even if NixOS crashes or the machine is powered off, the entire server can be
+diagnosed, hard-reset, or maintained at BIOS level from Germany.
+
+The model without integrated 10G copper (2L2T) was chosen deliberately: 10GBASE-T
+generates significant heat and power draw. Instead, an SFP+ card provides 10G via
+DAC cable — thermally and energetically superior.
+
+** Alternatives
+ASUS Pro WS X570-ACE (no out-of-band management)
+
+* Network Card: Intel X710-DA2 (2x SFP+)
+- *Part Number:* X710DA2
+- *Unit Price:* approx. 173.00 €
+- *Quantity:* 1
+
+** Why this part?
+Two SFP+ ports for DAC connections to the switch: near-zero power draw, no heat,
+minimal latency. The Intel X710 chipset guarantees first-class Linux/NixOS support,
+hardware offloading, and full PXE boot capability for thin client deployment.
+
+* Network: 10G SFP+ DAC Twinax Cable
+- *Unit Price:* approx. 15.00 €
+- *Quantity:* 1 (plus as needed for switch uplink)
+
+** Why this part?
+KISS principle. A passive DAC cable is the simplest, most stable, most cost-effective
+10-Gigabit connection for short distances. No optics, no heat, no complexity.
+
+* CPU: AMD Ryzen 9 5950X (16C/32T)
+- *Part Number:* 100-100000059WOF
+- *Unit Price:* 360.00 €
+- *Quantity:* 1
+
+** Why this part?
+The AM4 platform is technologically mature, offering the best price/performance ratio.
+Crucially, AM4 supports ECC memory natively — without the significant premium that
+Intel Xeon platforms demand for ECC compatibility.
+
+16 cores / 32 threads provide substantial headroom for running 20 concurrent RDP
+desktop sessions plus all network services simultaneously. The CPU is configured at
+65W TDP (Eco-Mode) in the BIOS for reduced thermal load and reduced strain on the
+UPS and power grid — performance remains far more than sufficient at this limit.
+
+** Alternatives
+- AMD Ryzen 7 PRO 4750G (integrated GPU, fewer threads)
+- AMD Ryzen 9 3900X (previous generation, lower efficiency)
+
+* Cooling: Noctua NH-U12S redux
+- *Part Number:* NH-U12S redux
+- *Unit Price:* 54.60 €
+- *Quantity:* 1
+
+** Why this part?
+Noctua SSO2 bearings are the industry standard for longevity under harsh conditions.
+Combined with the BIOS-throttled 65W CPU, the fan operates well below its thermal
+limit, significantly extending its expected lifespan over the 10-year project horizon.
+
+** Alternatives
+be quiet! Pure Rock 2
+
+* Cooling: Noctua PWM Case Fans (120/140mm)
+- *Part Number:* NF-A14 PWM / NF-P12 redux (depending on case)
+- *Unit Price:* approx. 20.00 € each
+- *Quantity:* Maximum configuration of the chosen case (approx. 3–5 units)
+
+** Why this part?
+Fan choice is a critical long-term reliability decision. Noctua SSO2 bearings are
+rated for extreme longevity under dust. Fully populating all fan mounts creates
+positive internal air pressure — cooling air enters only through the dust filters,
+minimising unfiltered ingress of fine red sand. PWM control reduces mechanical wear
+further by matching fan speed to actual thermal load.
+
+** Alternatives
+Arctic P12/P14 PWM (cheaper, but lower expected bearing life under high dust load)
+
+* RAM: 32GB DDR4-3200 ECC UDIMM (×2, 64 GB total)
+- *Unit Price:* approx. 190.00 € (market price)
+- *Quantity:* 2 (initial); expandable to 4 × 32 GB = 128 GB
+
+** Why this part?
+ECC (Error Correction Code) RAM is mandatory for stable ZFS operation. ZFS relies on
+memory integrity; silent RAM errors without ECC can lead to data corruption that ZFS
+itself cannot detect or prevent.
+
+64 GB in Phase 1 comfortably runs 20 RDP desktop sessions plus all container
+services. By using 32 GB modules in Phase 1 rather than 4 × 16 GB, all RAM slots
+remain free for a straightforward Phase 2 expansion to 128 GB — without discarding
+any existing modules.
+
+Procurement is manufacturer-agnostic: Samsung, Hynix, Micron, Kingston — any module
+meeting JEDEC DDR4-3200 ECC UDIMM specification is acceptable.
+
+* Storage Tier 1 (System + Critical Data): Samsung SM883 480GB × 3
+- *Part Number:* MZ7KH480HAHQ-00005
+- *Unit Price:* approx. 110.00 €
+- *Quantity:* 3
+
+** Why this part?
+Three datacenter-grade SSDs in a ZFS 3-way mirror provide exceptional fault
+tolerance: any two drives can fail simultaneously and the pool remains intact.
+Power-Loss-Protection (PLP) via integrated capacitors protects the NixOS system
+and critical databases during sudden power events.
+
+Logical partition: 128 GB per drive dedicated to the NixOS system; remaining
+capacity for admin and teacher home directories, and mission-critical data.
+
+** Alternatives
+Intel S4610, Micron 5200 MAX
+
+* Storage Tier 2 (Student Data): Samsung 870 EVO 2TB × 2
+- *Part Number:* MZ-77E2T0B/EU
+- *Unit Price:* approx. 140.00 €
+- *Quantity:* 2
+
+** Why this part?
+High-capacity, cost-effective bulk storage for 120 individual student home
+directories. Offloading student data from the expensive datacenter drives significantly
+optimises the overall budget. The reduced risk tolerance is acceptable: student data
+is not mission-critical, and is fully protected by daily local ZFS snapshots and
+weekly off-site backup rotation to USB drives.
+
+** Alternatives
+Crucial MX500 2TB
+
+* Video: Logitech HD Pro C920 Webcam
+- *Part Number:* 960-001055
+- *Unit Price:* 49.99 €
+- *Quantity:* 1
+
+** Why this part?
+Native UVC (USB Video Class) support guarantees driverless plug-and-play under
+Linux/NixOS. Mechanical robustness and 1080p/30fps represent the optimal balance
+between image quality and the bandwidth-limited internet connection on-site.
+Integrated microphone for video conferences.
+
+** Alternatives
+Logitech C270 (720p, lower cost)
+
+* Audio: Edifier R1280DB Active Speakers (Pair)
+- *Part Number:* R1280DB
+- *Unit Price:* approx. 130.00 €
+- *Quantity:* 1 pair
+
+** Why this part?
+The R1280DB has an integrated optical (Toslink) digital input. Over the 10-metre
+cable run from server to speaker location, fibre optic transmission is completely
+immune to electromagnetic interference and eliminates the mains hum typical of long
+analog runs. Hardware dials for bass and treble allow intuitive adjustment without
+software intervention (KISS).
+
+** Assembly Note
+Speakers are wall-mounted at a non-intrusive height (carpentry task on-site).
+
+** Alternatives
+Edifier R1700DB (higher power output, higher cost)
+
+* Audio: USB to TOSLINK Converter
+- *Reference:* Cubilux USB-A to TOSLINK or equivalent
+- *Unit Price:* approx. 20.00 €
+- *Quantity:* 1
+
+** Why this part?
+The ASRock Rack motherboard has no optical output. This USB dongle is recognised as
+a standard audio device under NixOS (plug and play) and passes the signal bit-perfect
+to the optical cable.
+
+* Cable: Optical Audio Cable (Toslink), 10m
+- *Unit Price:* approx. 12.00 €
+- *Quantity:* 1
+
+** Why this part?
+Fibre optic cable for interference-free audio transmission over 10 metres.
+Unlike copper, it can be routed parallel to 230V mains cables without inducing noise.
+
+** Assembly Note
+Do not kink. Minimum bend radius ≥ 3 cm (use a soda can as a guide).
+
+* Cable: Speaker Cable (Master-to-Slave), 18m
+- *Spec:* 2-core OFC copper, 2.5 mm²
+- *Quantity:* 18 m (sold by the metre)
+
+** Why this part?
+The ICT room is 13 m long; cable routed along wall and ceiling requires 18 m total.
+2.5 mm² cross-section prevents power loss and damping-factor degradation over this
+distance.
+
+** Assembly Note
+Strictly observe polarity. Signal level is too low to cause hum — can be routed
+parallel to other cables.
+
+* Network: MikroTik hAP ax3 (Router/Firewall)
+- *Part Number:* C53UiG+5HPaxD2HPaxD
+- *Unit Price:* 0.00 € (from existing hardware stock)
+- *Quantity:* 1 (+ 1 cold spare recommended at ~120 €)
+
+** Why this part?
+Integrated from existing stock at zero cost. RouterOS provides enterprise-grade
+firewalling, DHCP, DNS, NTP, WireGuard VPN, and Traffic Shaping in one device.
+External antennas provide better Wi-Fi coverage in a classroom than smaller models.
+Higher CPU reserves handle the full firewall + QoS ruleset without throttling.
+
+** Alternatives
+MikroTik hEX S (no Wi-Fi)
+
+* Network: MikroTik CRS326-24G-2S+RM Switch
+- *Part Number:* CRS326-24G-2S+RM
+- *Unit Price:* approx. 140.00 €
+- *Quantity:* 1
+
+** Why this part?
+24 × 1G ports for thin clients plus 2 × 10G SFP+ uplinks to the server. The 10G
+uplinks prevent the switch from becoming a bottleneck when 20 clients boot
+simultaneously via PXE or load RDP sessions in parallel. Fanless design reduces
+dust accumulation inside the device.
+
+** Alternatives
+TP-Link TL-SG1024DE (1G uplink only — not proportionate to the modest cost saving)
+
+* Network: Network Cables (Made by Students)
+- *Unit Price:* 0.00 € (existing Cat 5 stock + connectors at school)
+- *Quantity:* approx. 25–30 assemblies
+
+** Why this part?
+Cable crimping is performed as a practical ICT project. Cat 5 bulk cable, RJ45
+connectors, and cable testers are already on-site. Cat 5 is fully sufficient for
+1 Gbps over classroom distances. In-house production gives students hands-on
+skills and builds ownership of the infrastructure they helped create.
+
+* USB Hub: StarTech 7-Port Industrial USB 3.0 (Wall-Mount)
+- *Part Number:* ST7300U3M
+- *Unit Price:* 82.40 €
+- *Quantity:* 1
+
+** Why this part?
+Metal enclosure, wall-mountable, screw-secured. The sacrificial short USB extension
+cables plug into this hub — the hub's own ports are never touched directly. Industrial
+mating-cycle rating protects against the expected classroom USB abuse.
+
+** Alternatives
+Standard consumer hubs (not recommended — short lifespan)
+
+* Input: Logitech K120 Keyboard US Layout
+- *Part Number:* 920-002479
+- *Unit Price:* 8.85 €
+- *Quantity:* 22
+
+** Why this part?
+US layout is the international standard for IT/programming education. Spill-resistant.
+Budgeted as consumables — buying 22 + extras creates an on-site spare parts depot
+at negligible cost per unit.
+
+** Alternatives
+Cherry Stream (better ergonomics, higher cost)
+
+* Input: Logitech B100 Optical Mouse
+- *Part Number:* 910-003357
+- *Unit Price:* 3.56 €
+- *Quantity:* 25
+
+** Why this part?
+Ambidextrous. Optical sensor is insensitive to dust accumulation. Treated as a
+pure consumable — buy 25, replace without ceremony when cables break.
+
+** Alternatives
+Microsoft Optical Mouse
+
+* Cable: DisplayPort to HDMI (1m, Unidirectional), ×22
+- *Unit Price:* approx. 6.00 €
+- *Quantity:* 22
+
+** Why this part?
+Converts the digital DisplayPort output of the HP ProDesk machines to HDMI for
+the monitors — eliminating VGA blur entirely. Procurement strategy: brand-agnostic
+bulk purchase at lowest unit price. 1 m length is mandatory to keep cables short,
+prevent cable clutter under desks, and reduce trampling risk.
+
+** Alternatives
+DeLOCK, Rankie, Cable Matters as fallback if generic batch shows quality issues.
+
+* Cable: Sacrificial USB-A 3.0 Extension (15–30 cm), ×7
+- *Unit Price:* approx. 3.00 €
+- *Quantity:* 7
+
+** Why this part?
+Short extension cables plug into the industrial USB hub ports and act as mechanical
+sacrificial buffers. USB media is inserted and removed from these cheap extensions,
+not from the expensive hub. Length strictly limited to 15–30 cm for clean cable
+management. If one is damaged, replace it for 3 euros.
+
+** Alternatives
+DeLOCK 82776 as a higher-quality fallback
+
+* Misc: USB Silicon Dust Caps (Set, USB-A + USB-C)
+- *Unit Price:* 4.29 €
+- *Quantity:* 1
+
+** Why this part?
+Seals all unused server ports. Prevents dust ingress and discourages users from
+inserting peripherals into unintended ports. Most cost-efficient hardware hardening
+measure in the entire project.
