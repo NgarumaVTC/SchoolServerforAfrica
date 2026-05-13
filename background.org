@@ -24,17 +24,17 @@
 - 2 GB RAM per machine; mechanical 240 GB HDDs
 - Network cards present but not connected
 - Monitors ~15", HDMI inputs but wired via analog VGA
-- Operating systems: Windows 7 and Windows 10 (pirated, unpatched, heavily infected)
+- Operating systems: Windows 7 and Windows 10 (unlicensed, unpatched, heavily infected)
 - "Networking": USB flash drives carried by hand between machines
 - Internet: LTE/5G via Airtel router — available but not distributed to students
 
 * The Problems
 
 ** 1. Unsupported and Unlicensed Operating Systems
-Windows is no longer supported on this hardware (and would be completely unaffordable
-regardless). Upgrading to current Windows versions is impossible due to hardware
-requirements and license costs. The existing installs are pirated copies, common
-across the region but representing a real educational and security liability.
+Windows is no longer supported on this hardware. Upgrading to current Windows
+versions is impossible due to hardware requirements and the prohibitive license costs
+in this budget context. The existing installations are unlicensed, receive no security
+updates, and represent a significant educational and security liability.
 
 ** 2. Physical Degradation
 USB ports fail after an estimated 200 insertion cycles under brute-force use and
