@@ -68,6 +68,13 @@ similar constraints.
   No local disk. No local state. Reboot = factory fresh.
 #+END_EXAMPLE
 
+* Links
+
+| Resource             | URL                                                          |
+|----------------------+--------------------------------------------------------------|
+| NixOS Configuration  | [[https://github.com/NgarumaVTC/nixos]]                          |
+| Zukunft bauen e.V.   | [[https://www.zukunft-bauen.online/]]                            |
+
 * Documentation
 
 | File                       | Contents                                           |
