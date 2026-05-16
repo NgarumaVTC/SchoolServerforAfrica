@@ -262,41 +262,162 @@ LLDAP provides a minimal LDAP server with a clean web UI at =http://172.20.90.12
 Backend: SQLite (minimal footprint, no PostgreSQL dependency).
 
 #+BEGIN_SRC nix
-# containers/ct-auth.nix
-containers."ct-auth" = {
+# hosts/auth/configuration.nix (mounted as container ctauth)
+containers."ctauth" = {
   autoStart = true;
   localAddress = "172.20.90.12";
-  bindMounts."/var/lib/lldap" = {
-    hostPath = "/tank/critical/lldap";
-    isReadOnly = false;
-  };
   config = { pkgs, ... }: {
     services.lldap = {
       enable = true;
-      settings.ldap_base_dn = "dc=ngarumavtc,dc=tz";
+      settings.ldap_base_dn = "dc=ngarumavtc,dc=lan";
     };
   };
 };
 #+END_SRC
 
-** 5.2 Bulk Student Import ("60-in-60-out")
-A NixOS activation script (or standalone tool) reads a CSV file with student data
-and creates/removes LLDAP accounts and ZFS home datasets accordingly:
+** 5.2 Three Roles, Three LDAP Groups
+The school maps to three roles, each represented by an lldap group:
+| Role    | Group           | Who                  | Login Targets                |
+|---------+-----------------+----------------------+------------------------------|
+| Admin   | =lldap_admin=   | Msoya, Ngowi, Ramge  | mgmt1 + host SSH (wheel)     |
+| Teacher | =lldap_teacher= | Mrosso, Albert, …    | mgmt1 (XRDP)                 |
+| Student | =lldap_student= | ~120 apprentices     | thin clients only            |
 
+Built-in lldap groups remain in place:
+- =lldap_admin= (id 1, system) gives the LDAP-admin permission inside lldap itself
+- =lldap_strict_readonly= (id 3) is used for the readonly bind account that sssd uses
+
+*** 5.2.1 Add =gidNumber= to the group schema (one-off)
+Lldap groups have no =gidNumber= attribute by default, so they aren't visible as POSIX
+groups via NSS. Without that, =chgrp lldap_teacher= and =getent group= fail. Fix once,
+via GraphQL:
+
+#+BEGIN_SRC bash
+# Add the schema attribute
+curl -sf "$LLDAP/api/graphql" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"mutation{addGroupAttribute(name:\"gidnumber\",attributeType:INTEGER,isList:false,isVisible:true,isEditable:true){ok}}"}'
+
+# Assign GIDs (4001/2/3 chosen to stay out of user UID ranges)
+for pair in "1:4001" "5:4002" "4:4003"; do
+  gid_id="${pair%%:*}"; gid_num="${pair##*:}"
+  curl -sf "$LLDAP/api/graphql" -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"query\":\"mutation{updateGroup(group:{id:${gid_id},insertAttributes:[{name:\\\"gidnumber\\\",value:[\\\"${gid_num}\\\"]}]}){ok}}\"}"
+done
+#+END_SRC
+
+After this, =id <user>= on sssd-enabled hosts will list the LDAP group, and =chgrp
+lldap_teacher /media/ClassMaterial= works.
+
+** 5.3 Student Provisioning
+=users/provision-students.sh= reads =users/students.csv= and, per student, creates:
+1. A ZFS dataset =homes/student<NNNNN>= (mounted at =/home/student<NNNNN>=)
+2. An lldap user with =uidnumber= / =gidnumber= attributes
+3. Group membership in =lldap_student= (id 4)
+4. An initial password (currently hardcoded; future: per-user random with force-change)
+
+CSV format:
 #+BEGIN_EXAMPLE
-# students.csv format
-username,displayname,grade
-s2026001,Amina Juma,2026
-s2026002,Baraka Mushi,2026
+id,nickname,firstNames,lastName,sex,trade,entryDate
+13,Vaileth,Vaileth Asia,Mushi,F,ICT,2026-04-01
 ...
 #+END_EXAMPLE
 
-At the start of each school year: replace the CSV, run the import script, done.
-Graduated students are archived (home directory snapshotted, account disabled).
+UID is computed as =10000 + id=. At end-of-year: snapshot the home dataset, disable
+the lldap user, eventually =zfs destroy= the dataset.
 
-* Phase 6: Thin Client Preparation
+** 5.4 Staff Provisioning (Admins + Teachers)
+=users/provision-staff.sh= mirrors the student script but writes to the high-trust
+pool. Per staff member:
+1. ZFS dataset =tank/data/staff/<username>= (under =/staff/<username>= on the host)
+2. lldap user with =uidnumber= / =gidnumber=
+3. Group membership in =lldap_admin= or =lldap_teacher= depending on the =role= column
+4. Random 16-character initial password, printed to stdout at the end of the run for
+   the admin to hand over in person
 
-** 6.1 Physical Hardening
+CSV format (=users/staff.csv=):
+#+BEGIN_EXAMPLE
+uid,username,fullname,role
+1001,ramge,Axel Ramge,admin
+2001,msoya,Msoya Lameck,admin
+2010,mrosso,Mrosso Boniface,teacher
+...
+#+END_EXAMPLE
+
+Admins normally also exist as declarative NixOS users (=users/<name>/nixos.nix=) so
+they have SSH-key-based root access independent of lldap. Teachers exist only in lldap.
+
+* Phase 6: Admin/Teacher Workstation (mgmt1)
+
+The mgmt1 container is where humans actually work. mkuu1 stays a "dumb" host that
+runs ZFS, NFS, and containers — administrators don't SSH into it directly except for
+emergency repair.
+
+** 6.1 What mgmt1 provides
+- =services.openssh= for admin SSH access (key-based)
+- =services.xrdp= + XFCE4 for teacher GUI access on port 3389
+- =services.sssd= authenticating against lldap, with =simple_allow_groups= replaced by
+  an =ldap_access_filter= (see below)
+- Bind-mounts from the host:
+  - =/home= ← =/staff= (staff homes appear naturally as =/home/<user>=)
+  - =/home/ramge/sync= ← Flake-repo on the host (admins edit and rebuild in-place)
+  - =/media/ClassMaterial= ← =tank/data/lehrpult= (teachers populate class material)
+- Pre-installed tools: =git=, =gh=, =claude-code=, =sops=, =age=, =nix=, =vim=, plus
+  Teacher-facing apps =firefox-esr=, =libreoffice=, =evince=, =gimp=, =inkscape=
+
+** 6.2 SSSD access control — two non-obvious requirements
+*** =ldap_access_filter= against =memberOf=
+Since lldap groups historically had no =gidNumber=, =simple_allow_groups= can't see
+membership. Even after adding =gidNumber=, the cleaner approach is a direct LDAP
+filter:
+
+#+BEGIN_EXAMPLE
+[domain/lldap]
+access_provider = ldap
+ldap_access_order = filter
+ldap_access_filter = (|(memberOf=cn=lldap_admin,ou=groups,dc=ngarumavtc,dc=lan)(memberOf=cn=lldap_teacher,ou=groups,dc=ngarumavtc,dc=lan))
+#+END_EXAMPLE
+
+Students are rejected even though their LDAP user object resolves cleanly via NSS.
+
+*** =sssdStrictAccess= on every PAM service
+The NixOS default places =pam_sss= as =sufficient= in the =account= phase. If SSSD
+denies access, the stack continues to =pam_unix=, which is =required= and simply
+confirms the user exists via NSS — net result: the denied user is let in.
+
+#+BEGIN_SRC nix
+security.pam.services.login.sssdStrictAccess     = true;
+security.pam.services.xrdp-sesman.sssdStrictAccess = true;
+security.pam.services.sshd.sssdStrictAccess      = true;
+#+END_SRC
+
+Symptom if forgotten: =sssctl user-checks -a acct -s sshd <denied_user>= returns
+Success despite the filter clearly excluding the user.
+
+** 6.3 ClassMaterial: Teacher write access via POSIX group
+With =gidNumber= now on =lldap_teacher= (=4002=), the shared folder is owned by that
+group with setgid set so new files inherit the group:
+
+#+BEGIN_SRC nix
+systemd.tmpfiles.rules = [
+  "d /media/ClassMaterial 2775 root 4002 -"
+];
+#+END_SRC
+
+Teachers write directly to =/media/ClassMaterial= from mgmt1. (Students don't currently
+see this directory at all — exposing it read-only over NFS to the student VLAN is an
+open item.)
+
+** 6.4 Verifying mgmt1
+- =ssh ramge@172.20.0.11= → admin shell, can =cd ~/sync/gh/NgarumaVTC/nixos=, sudo via wheel
+- =xfreerdp /v:172.20.0.11 /u:<teacher>= → XFCE4 desktop, writes to =/home/<teacher>=
+- =sssctl user-checks -a acct -s sshd student10013= → *Permission denied*
+- =touch /media/ClassMaterial/test= as a teacher succeeds; the file inherits =lldap_teacher=
+
+* Phase 7: Thin Client Preparation
+
+** 7.1 Physical Hardening
 For each HP ProDesk / Dell OptiPlex thin client:
 - [ ] Remove hard drive (no local state — boot is network-only)
 - [ ] Block unused USB ports with silicon dust caps
@@ -304,19 +425,19 @@ For each HP ProDesk / Dell OptiPlex thin client:
 - [ ] Add strain relief (zip tie) to power and display cables
 - [ ] Label with assigned container number (=TC-51= through =TC-70=)
 
-** 6.2 BIOS Configuration
+** 7.2 BIOS Configuration
 - [ ] Set Network Boot (PXE) as the first and only boot device
 - [ ] Disable USB boot
 - [ ] Set a BIOS password (prevents students from changing boot order)
 
-** 6.3 Boot Test
+** 7.3 Boot Test
 - [ ] Connect client to student LAN port on the CRS326 switch
 - [ ] Power on → client should receive DHCP from MikroTik
 - [ ] iPXE loads kernel + microcode.img + initrd over HTTP → NixOS boots
 - [ ] XFCE4 login screen appears; sssd auth against LLDAP works
 - [ ] NFS-mounted home directory is writable and persistent across reboots
 
-* Phase 7: Operational Validation
+* Phase 8: Operational Validation
 
 - [ ] All 20 thin clients boot and reach their containers simultaneously
 - [ ] ZFS snapshot schedule active (=zfs list -t snapshot=)

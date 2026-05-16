@@ -10,40 +10,56 @@
 - Isolated Wi-Fi for students
 - Wireguard for remote management
 
-* Server: NixOS Declarative Host (N100 -> später AMD 5950X)
+* Server: NixOS Declarative Host (mkuu1)
 ** Infrastructure & Management (The "Nix Way")
-- Single Source of Truth: Entire system state defined in `/etc/nixos` (Git-tracked, public on GitHub)
+- Single Source of Truth: Entire system state defined in a NixOS flake (Git-tracked, public on GitHub)
 - NO Ansible, NO etckeeper required (NixOS natively handles declarative config management and rollbacks)
-- Management Node (`mgnt1`): Central entry point for admin tools / rebuild scripts
+- The host (`mkuu1`) stays a pure host — ZFS, NFS server, container runtime
+- Administrators work on `mgmt1` (workstation container), not on the bare host
 - UPS integration via NUT (Network UPS Tools)
 - Backup: "The African Way" – Weekly rotation of two rugged USB-C drives (Transcend StoreJet 25M3C)
   - ZFS Snapshots & ZFS Send/Receive to USB drives (blazing fast, incremental)
 
+** Identity & Roles (lldap)
+Three roles for ~120 students + ~5 teachers + 2–3 admins, each materialised as an lldap group:
+- =lldap_admin= — full sudo on mgmt1, deployed via declarative NixOS user modules with SSH keys
+- =lldap_teacher= — XRDP login on mgmt1, write access to =/media/ClassMaterial=
+- =lldap_student= — login only on thin clients, no access to mgmt1
+- =lldap_strict_readonly= — service account for the read-only LDAP bind used by sssd everywhere
+
+Groups carry a =gidNumber= attribute (added via a custom lldap group-schema attribute) so they appear as POSIX groups on clients/mgmt1 — necessary for =chgrp= on shared directories.
+
 ** Network & Core Services (NixOS Containers via systemd-nspawn)
-- `web01` Container: 
+- =ct-auth= Container (Identity Provider):
+  - LLDAP (Lightweight LDAP) for central user management
+  - SQLite backend, minimal footprint, web-based UI on port 17170
+- =web01= Container:
   - Nginx web server
-  - Delivery of iPXE boot images (HTTP)
+  - Delivery of iPXE boot images (HTTP): kernel, initrd, Intel microcode CPIO
   - Local documentation / School portal
-- `ct-kiwix` Container (Offline Knowledge):
+- =mgmt1= Container (Admin & Teacher Workstation):
+  - XFCE4 desktop served via xrdp on port 3389
+  - sssd against ct-auth, =sssdStrictAccess= on PAM (else access_filter is silently bypassed by pam_unix)
+  - Bind-mounts from host: =/home= ← =/staff=, =/home/ramge/sync=, =/media/ClassMaterial=
+  - Pre-installed: git, gh, claude-code, sops, age, libreoffice, firefox-esr, gimp, inkscape, …
+- =ct-kiwix= Container (Offline Knowledge — planned):
   - kiwix-serve for bandwidth-independent offline Wikipedia, Khan Academy, etc.
-- `ct-auth` Container (Identity Provider):
-  - LLDAP (Lightweight LDAP) for central user management (~120 students)
-  - SQLite backend, minimal footprint, web-based UI
-  - Provisional Master Password: "NgarumaVTC"
 
-** Storage & User Data (Native ZFS & Bind-Mounts)
-- Storage handled natively by the NixOS Host via ZFS (Datasets with quotas)
-- NO NFS REQUIRED: Student homes are passed directly from the host into containers via blazing-fast native Bind-Mounts
-- "The Teacher's Desk" (Das Lehrpult): Bind-Mounts for straightforward file exchange
-  - `/tank/ClassMaterial` (Read-Only for students, Read-Write for teachers)
-  - `/tank/DropBox` (Write-Only for students, Drop-In for assignments)
+** Storage & User Data (ZFS, two pools)
+Pools split by data criticality:
+- =tank= — 3-way mirror of enterprise SATA SSDs, hosts everything we cannot lose:
+  - =tank/containers= → =/var/lib/nixos-containers=
+  - =tank/data/staff= → =/staff= on host (bind-mounted as =/home= in mgmt1)
+  - =tank/data/lehrpult= → =/media/ClassMaterial= (RW for teachers, RO for students)
+- =homes= — single NVMe (later a mirror), hosts the bulk student data we can afford to lose:
+  - =homes/student<id>= → =/home/student<id>= on host
+  - One ZFS dataset per student → per-student quotas, snapshots, send/recv
 
-** Desktop Environments & Student Workspaces (NixOS Containers via systemd-nspawn)
-- 20x NixOS containers (`ct90051` - `ct90070`) 
-- Base Image managed via `studentssoftware.nix` (Firefox, LibreOffice, Zed, FreeCAD, GIMP, Python, etc.)
-- GUI Stack: XFCE4 + xrdp (KISS-Principle, extremely low resource footprint)
-- User environment dynamically linked upon login (Profiles)
-- Students can safely install packages locally via `nix profile` without root privileges
+** Sharing student & class data
+- NFS exports from mkuu1 over the student VLAN (172.20.90.0/24):
+  - =/nix/store= read-only (the diskless thin client root)
+  - =/home= read-write (student homes from the =homes= pool)
+- Teacher writes to =/media/ClassMaterial= happen directly on mgmt1; on thin clients the directory is currently not exposed (students don't see class material yet — open item)
 
 * Thin Clients (20x Refurbished Business PCs / e.g. HP ProDesk or Dell OptiPlex Micro)
 - Diskless, booting via iPXE (kernel + initrd from web01 over HTTP)
